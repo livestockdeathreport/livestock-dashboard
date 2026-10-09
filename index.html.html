@@ -1,0 +1,1557 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Livestock Daily Dashboard</title>
+
+<!-- ===== Libraries (CDN) ===== -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<!-- No extra library is needed to read .pptx: the file is unzipped with the browser's built-in
+     DecompressionStream (Chrome/Edge 103+, Firefox 113+, Safari 16.4+) and the slide XML is read with DOMParser. -->
+
+<style>
+  :root{
+    --dld-green:#0f5132; --dld-green-2:#198754; --ink:#1f2937; --muted:#6b7280;
+    --page-bg:#eef2f0; --card-bg:#ffffff; --dash-bg:#f5f7f6; --line:#e5e7eb;
+  }
+  body{font-family:'Sarabun',system-ui,sans-serif;background:var(--page-bg);color:var(--ink)}
+
+  /* ---------- App bar & control panel (NOT exported) ---------- */
+  .app-bar{background:var(--dld-green);color:#fff}
+  .app-bar .navbar-brand{color:#fff;font-weight:600}
+  .control-panel{border:0;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .drop-zone{display:block;border:2px dashed #a3b1aa;border-radius:12px;padding:26px 16px;text-align:center;
+    background:#fafcfb;cursor:pointer;transition:.15s}
+  .drop-zone:hover,.drop-zone.dragover{border-color:var(--dld-green-2);background:#ecfdf3}
+  .drop-zone i{font-size:2.2rem;color:var(--dld-green-2)}
+  .file-slot{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#fff}
+  .file-slot.loaded{border-color:#a7d7b8;background:#f6fcf8}
+  .slot-no{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--dld-green);color:#fff;
+    font-size:.75rem;align-items:center;justify-content:center;margin-right:6px}
+  .file-slot details summary{cursor:pointer;font-size:.8rem;color:var(--dld-green-2)}
+  .map-table{font-size:.78rem}
+  .map-table td{padding:2px 6px;vertical-align:top}
+
+  /* ---------- Dashboard (exported) ---------- */
+  .dash-scroll{overflow-x:auto}
+  #dashboard{background:var(--dash-bg);padding:24px;border-radius:16px;max-width:1280px;width:100%;margin:0 auto}
+  .dash-header{background:linear-gradient(135deg,#0f5132 0%,#198754 100%);color:#fff;border-radius:12px;padding:18px 24px}
+  .dash-emblem{width:52px;height:52px;border-radius:12px;background:rgba(255,255,255,.15);display:flex;
+    align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0}
+  .dash-org{font-size:.85rem;opacity:.85}
+  .dash-title{font-size:1.45rem;font-weight:700;margin:0;line-height:1.3}
+  .dash-period{font-size:.9rem;opacity:.95;margin-top:2px}
+  .dash-date-label{font-size:.8rem;opacity:.85}
+  .dash-date{font-size:1.2rem;font-weight:700;line-height:1.3}
+  .dash-time{font-size:.9rem;opacity:.9}
+  .sample-badge{display:inline-block;background:#fbbf24;color:#422006;font-weight:700;font-size:.75rem;
+    padding:2px 10px;border-radius:999px;margin-bottom:4px}
+
+  .section-title{font-size:1.1rem;font-weight:700;color:var(--dld-green);margin:24px 0 10px;display:flex;align-items:center;gap:10px}
+  .section-no{width:28px;height:28px;border-radius:8px;background:var(--dld-green);color:#fff;display:inline-flex;
+    align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0}
+  .section-title::after{content:'';flex:1;height:2px;background:#d1e3d8}
+
+  .kpi-card{background:var(--card-bg);border-radius:12px;padding:14px 16px;height:100%;
+    border-top:4px solid var(--accent,#198754);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .kpi-head{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.88rem;font-weight:500;line-height:1.25}
+  .kpi-icon{flex:0 0 32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    background:var(--accent-soft,#eef6f1);color:var(--accent)}
+  .kpi-value{font-size:1.8rem;font-weight:700;line-height:1.2;margin-top:8px;white-space:nowrap}
+  .kpi-unit{font-size:.85rem;font-weight:500;color:var(--muted);margin-left:4px}
+  .kpi-sub{font-size:.8rem;color:var(--muted);margin-top:2px}
+
+  .chart-card{background:var(--card-bg);border-radius:12px;padding:16px 18px;height:100%;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .chart-title{font-size:1rem;font-weight:700;margin:0}
+  .chart-sub{font-size:.78rem;color:var(--muted)}
+  .chart-box{position:relative;height:300px;margin-top:8px}
+  .total-pill{flex-shrink:0;font-size:.78rem;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap;
+    background:var(--accent-soft,#eef6f1);color:var(--accent)}
+
+  .data-table{font-size:.8rem;margin:8px 0 0}
+  .data-table thead th{background:#f0f5f2;color:#374151;font-weight:600;border-bottom:2px solid #d1e3d8;line-height:1.2;vertical-align:bottom}
+  .data-table td,.data-table th{padding:5px 6px;vertical-align:middle}
+  .data-table td.num,.data-table th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .data-table tbody tr{height:31px}
+  .data-table tfoot td{font-weight:700;background:#f0f5f2;border-top:2px solid #d1e3d8}
+
+  /* Tiles (assistance & damage) */
+  .tile-grid{display:grid;gap:12px}
+  .tile-grid.cols-5{grid-template-columns:repeat(5,1fr)}
+  .tile-grid.cols-6{grid-template-columns:repeat(6,1fr)}
+  @media (max-width:1199.98px){ .tile-grid.cols-5,.tile-grid.cols-6{grid-template-columns:repeat(2,1fr)} }
+  .tile{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.05);border-top:4px solid var(--accent)}
+  .tile-head{display:flex;align-items:center;gap:8px;font-size:.84rem;color:var(--muted);line-height:1.25;min-height:2.5em}
+  .tile-icon{flex:0 0 32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;
+    background:var(--accent-soft,#eef6f1);color:var(--accent)}
+  .tile-val{font-size:1.5rem;font-weight:700;line-height:1.2;margin-top:6px;white-space:nowrap}
+  .tile-sub{font-size:.78rem;color:var(--muted);margin-top:2px;white-space:nowrap}
+  .today-up{color:#047857;font-weight:600}
+  .today-zero{color:#9ca3af}
+
+  /* Map */
+  .map-box{position:relative;margin-top:8px}
+  .map-box canvas{display:block;width:100%}
+  .map-status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+    color:#9ca3af;font-size:.9rem;padding:20px}
+  .map-tip{position:absolute;pointer-events:none;background:#111827;color:#fff;font-size:.78rem;padding:4px 8px;
+    border-radius:6px;white-space:nowrap;display:none;z-index:5}
+  .map-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.78rem;color:#374151;margin-top:8px}
+  .map-legend span.sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:5px;vertical-align:-2px}
+  /* Large legend next to the species doughnut */
+  .big-legend{flex:1;display:flex;flex-direction:column;justify-content:center;gap:8px;min-width:0}
+  .bl-row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:10px;background:#f6f8f7}
+  .bl-dot{width:16px;height:16px;border-radius:4px;flex-shrink:0}
+  .bl-name{font-size:1.05rem;font-weight:600;white-space:nowrap}
+  .bl-val{margin-left:auto;font-size:1.25rem;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .bl-unit{font-size:.8rem;font-weight:500;color:var(--muted);margin-left:3px}
+  .bl-pct{flex:0 0 72px;text-align:center;font-size:.85rem;font-weight:700;border-radius:999px;padding:2px 8px;background:#fff;border:1px solid var(--line)}
+  /* Heatmap table */
+  .heatmap td.hm{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .heatmap thead th{font-size:.76rem}
+
+  /* Section header/footer: only visible when exporting a section as its own image */
+  .sec-head,.sec-foot{display:none}
+  body.export-split #dashboard{padding:0;background:transparent}
+  body.export-split #dashboard > .dash-header,body.export-split #dashboard > .dash-footer{display:none}
+  body.export-split .dash-section{display:block;background:var(--dash-bg);padding:24px}
+  body.export-split .sec-head{display:block}
+  body.export-split .sec-foot{display:flex}
+  .dash-footer{font-size:.75rem;color:var(--muted);border-top:1px solid var(--line);margin-top:20px;padding-top:10px}
+
+  /* ---------- Export mode: force the fixed 1280px desktop layout on any screen ---------- */
+  body.export-mode .dash-scroll{overflow:visible}
+  body.export-mode #dashboard{width:1280px;max-width:none}
+  body.export-mode #dashboard .col-xl-4{flex:0 0 auto;width:33.33333333%}
+  body.export-mode #dashboard .col-xl-5{flex:0 0 auto;width:41.66666667%}
+  body.export-mode #dashboard .col-xl-6{flex:0 0 auto;width:50%}
+  body.export-mode #dashboard .col-xl-7{flex:0 0 auto;width:58.33333333%}
+  body.export-mode #dashboard .tile-grid.cols-5{grid-template-columns:repeat(5,1fr)}
+  body.export-mode #dashboard .tile-grid.cols-6{grid-template-columns:repeat(6,1fr)}
+</style>
+</head>
+<body>
+
+<nav class="navbar app-bar">
+  <div class="container-xxl">
+    <span class="navbar-brand"><i class="bi bi-bar-chart-line"></i> Livestock Daily Dashboard</span>
+    <span class="small opacity-75">อัปโหลดรายงาน .pptx ประจำวัน → ตรวจสอบ → Export PNG</span>
+  </div>
+</nav>
+
+<div class="container-xxl py-4">
+
+  <!-- ================= CONTROL PANEL (excluded from export) ================= -->
+  <section id="controlPanel" class="card control-panel mb-4">
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-lg-5">
+          <label id="dropZone" class="drop-zone" for="fileInput">
+            <i class="bi bi-file-earmark-slides"></i>
+            <div class="fw-semibold mt-1">ลากไฟล์รายงาน .pptx มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
+            <div class="small text-muted">ไฟล์เดียว — ระบบอ่านตารางทุกสไลด์ แล้วแยกเป็น 3 หัวข้อจากชื่อตารางบนสไลด์</div>
+          </label>
+          <input type="file" id="fileInput" accept=".pptx" hidden>
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            <button id="btnExport" class="btn btn-success"><i class="bi bi-image"></i> PNG ทั้งหน้า (1 รูป)</button>
+            <button id="btnExportSplit" class="btn btn-success"><i class="bi bi-images"></i> PNG แยกหัวข้อ (3 รูป)</button>
+            <button id="btnExportPdf" class="btn btn-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+            <button id="btnSample" class="btn btn-outline-secondary"><i class="bi bi-magic"></i> โหลดข้อมูลตัวอย่าง</button>
+            <button id="btnReset" class="btn btn-outline-danger"><i class="bi bi-x-circle"></i> ล้างข้อมูล</button>
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-2 small">
+            <label for="qualitySel" class="text-muted"><i class="bi bi-badge-hd"></i> ความคมชัด:</label>
+            <select id="qualitySel" class="form-select form-select-sm w-auto">
+              <option value="2">มาตรฐาน (2×)</option>
+              <option value="3">คมชัดสูง (3×)</option>
+              <option value="4">คมชัดสูงมาก (4×) — ไฟล์ใหญ่</option>
+            </select>
+            <span id="qualityHint" class="text-muted"></span>
+          </div>
+        </div>
+        <div class="col-lg-7">
+          <div id="fileInfo" class="small text-muted mb-1"></div>
+          <div id="mapInfo" class="small text-muted mb-2"></div>
+          <div id="fileSlots" class="vstack gap-2"></div>
+          <div id="alerts" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DASHBOARD (this container is exported) ================= -->
+  <div class="dash-scroll">
+  <div id="dashboard">
+
+    <header class="dash-header">
+      <div class="d-flex justify-content-between align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3">
+          <div class="dash-emblem"><i class="bi bi-clipboard2-pulse"></i></div>
+          <div>
+            <div class="dash-org">กรมปศุสัตว์ · ศูนย์อำนวยการป้องกันและแก้ไขปัญหาภัยพิบัติด้านปศุสัตว์ (ศปภ. ปศ.)</div>
+            <h1 class="dash-title" id="dashTitle">รายงานสถานการณ์ภัยพิบัติด้านปศุสัตว์</h1>
+            <div class="dash-period" id="dashPeriod">&nbsp;</div>
+          </div>
+        </div>
+        <div class="text-end flex-shrink-0">
+          <span id="sampleBadge" class="sample-badge d-none">ข้อมูลตัวอย่าง</span>
+          <div class="dash-date-label">ข้อมูล ณ วันที่</div>
+          <div id="reportDate" class="dash-date">–</div>
+          <div id="reportTime" class="dash-time">&nbsp;</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== SECTION 1: ผลกระทบสัตว์ที่อยู่ในพื้นที่ ===== -->
+    <section class="dash-section" id="sec-impact" data-file="1_ผลกระทบสัตว์ในพื้นที่">
+    <div class="sec-head"></div>
+    <div class="section-title"><span class="section-no">1</span> ผลกระทบสัตว์ที่อยู่ในพื้นที่ประสบภัย</div>
+    <div class="row g-3">
+      <div class="col-12 col-xl-5">
+        <div class="row g-3 h-100">
+          <div class="col-6">
+            <div class="kpi-card" style="--accent:#0f766e">
+              <div class="kpi-head"><span class="kpi-icon"><i class="bi bi-geo-alt"></i></span>พื้นที่ได้รับผลกระทบ</div>
+              <div class="kpi-value"><span id="kpiProvinces">–</span><span class="kpi-unit">จังหวัด</span></div>
+              <div class="kpi-sub" id="kpiProvincesSub">&nbsp;</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="kpi-card" style="--accent:#2563eb">
+              <div class="kpi-head"><span class="kpi-icon"><i class="bi bi-people"></i></span>เกษตรกรที่ได้รับผลกระทบ</div>
+              <div class="kpi-value"><span id="kpiFarmers">–</span><span class="kpi-unit">ราย</span></div>
+              <div class="kpi-sub" id="kpiFarmersSub">&nbsp;</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="kpi-card" style="--accent:#7c3aed">
+              <div class="kpi-head"><span class="kpi-icon"><i class="bi bi-house-exclamation"></i></span>สัตว์ในพื้นที่ประสบภัย</div>
+              <div class="kpi-value"><span id="kpiAnimals">–</span><span class="kpi-unit">ตัว</span></div>
+              <div class="kpi-sub" id="kpiAnimalsSub">&nbsp;</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="kpi-card" style="--accent:#65a30d">
+              <div class="kpi-head"><span class="kpi-icon"><i class="bi bi-flower3"></i></span>แปลงหญ้าเลี้ยงสัตว์</div>
+              <div class="kpi-value"><span id="kpiPasture">–</span><span class="kpi-unit">ไร่</span></div>
+              <div class="kpi-sub" id="kpiPastureSub">&nbsp;</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-xl-7">
+        <div class="chart-card">
+          <div class="chart-title">สัดส่วนสัตว์ในพื้นที่ประสบภัย จำแนกตามชนิด</div>
+          <div class="chart-sub">หน่วย: ตัว · ร้อยละเทียบกับสัตว์ทั้งหมดในพื้นที่ประสบภัย</div>
+          <div class="d-flex align-items-center gap-3 mt-2">
+            <div class="chart-box mt-0" style="height:250px;flex:0 0 250px"><canvas id="chartImpactSpecies"></canvas></div>
+            <div class="big-legend" id="impactSpeciesLegend"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row g-3 mt-0">
+      <div class="col-12 col-xl-5">
+        <div class="chart-card">
+          <div class="chart-title">แผนที่จังหวัดที่ได้รับผลกระทบ</div>
+          <div class="chart-sub" id="mapImpactSub">สีเข้ม = เกษตรกรได้รับผลกระทบมาก</div>
+          <div class="map-box"><canvas id="mapImpact"></canvas><div class="map-status"></div><div class="map-tip"></div></div>
+          <div class="map-legend" id="mapImpactLegend"></div>
+        </div>
+      </div>
+      <div class="col-12 col-xl-7">
+        <div class="chart-card">
+          <div class="chart-title">สัตว์ใหญ่ในพื้นที่ประสบภัย รายจังหวัด</div>
+          <div class="chart-sub">แท่งเรียงซ้อนแยกตามชนิดสัตว์ (โค กระบือ สุกร แพะ/แกะ) · ทุกจังหวัดในรายงาน · หน่วย: ตัว</div>
+          <div class="chart-box"><canvas id="chartImpactProvince"></canvas></div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="chart-card">
+          <div class="chart-title">สรุปผลกระทบรายจังหวัด</div>
+          <div class="chart-sub">เรียงตามจำนวนเกษตรกรที่ได้รับผลกระทบ</div>
+          <table class="table data-table">
+            <thead><tr>
+              <th>จังหวัด</th><th class="num">อำเภอ</th><th class="num">ตำบล</th><th class="num">หมู่บ้าน</th>
+              <th class="num">เกษตรกร<br>(ราย)</th><th class="num">สัตว์<br>(ตัว)</th><th class="num">แปลงหญ้า<br>(ไร่)</th>
+            </tr></thead>
+            <tbody id="impactTableBody"></tbody>
+            <tfoot id="impactTableFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="sec-foot dash-footer justify-content-between gap-3"></div>
+    </section>
+
+    <!-- ===== SECTION 2: การช่วยเหลือเฉพาะหน้า ===== -->
+    <section class="dash-section" id="sec-assist" data-file="2_การช่วยเหลือเฉพาะหน้า">
+    <div class="sec-head"></div>
+    <div class="section-title"><span class="section-no">2</span> การช่วยเหลือเฉพาะหน้า</div>
+    <div id="assistTiles" class="tile-grid cols-5"></div>
+    <div class="row g-3 mt-0">
+      <div class="col-12 col-xl-7">
+        <div class="chart-card">
+          <div class="chart-title">การช่วยเหลือรายจังหวัด (แผนที่ความร้อน)</div>
+          <div class="chart-sub">ยอดสะสม · สีเข้ม = มาก เทียบภายในแต่ละประเภท · เรียงจังหวัดที่ได้รับการช่วยเหลือมากไปน้อย</div>
+          <table class="table data-table heatmap">
+            <thead id="heatHead"></thead>
+            <tbody id="heatBody"></tbody>
+            <tfoot id="heatFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="col-12 col-xl-5">
+        <div class="vstack gap-3">
+          <div class="chart-card">
+            <div class="chart-title">สัดส่วนยอดวันนี้ในยอดสะสม</div>
+            <div class="chart-sub">แท่งเรียงซ้อน 100% · สีเข้ม = ยอดเดิม · สีอ่อน = เพิ่มวันนี้</div>
+            <div class="chart-box" style="height:230px"><canvas id="chartAssistToday"></canvas></div>
+          </div>
+          <div class="chart-card" style="--accent:#047857">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div class="chart-title"><i class="bi bi-calendar-check" style="color:#047857"></i> ความช่วยเหลือวันนี้</div>
+              <span class="total-pill" id="todayCount">–</span>
+            </div>
+            <div class="chart-sub">จังหวัดที่มีการช่วยเหลือในวันรายงาน</div>
+            <table class="table data-table">
+              <thead id="todayTableHead"></thead>
+              <tbody id="todayTableBody"></tbody>
+              <tfoot id="todayTableFoot"></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sec-foot dash-footer justify-content-between gap-3"></div>
+    </section>
+
+    <!-- ===== SECTION 3: สัตว์ที่ได้รับความเสียหาย ===== -->
+    <section class="dash-section" id="sec-damage" data-file="3_สัตว์ที่ได้รับความเสียหาย">
+    <div class="sec-head"></div>
+    <div class="section-title"><span class="section-no">3</span> สัตว์ที่ได้รับความเสียหาย</div>
+    <div id="damageTiles" class="tile-grid cols-6"></div>
+    <div class="row g-3 mt-0">
+      <div class="col-12 col-xl-5">
+        <div class="chart-card">
+          <div class="chart-title">แผนที่จังหวัดที่มีสัตว์ได้รับความเสียหาย</div>
+          <div class="chart-sub">สีเข้ม = จำนวนสัตว์ที่ได้รับความเสียหายมาก</div>
+          <div class="map-box"><canvas id="mapDamage"></canvas><div class="map-status"></div><div class="map-tip"></div></div>
+          <div class="map-legend" id="mapDamageLegend"></div>
+        </div>
+      </div>
+      <div class="col-12 col-xl-7">
+        <div class="vstack gap-3">
+          <div class="chart-card">
+            <div class="chart-title">สัดส่วนความเสียหายตามจังหวัด</div>
+            <div class="chart-sub">วงแหวน: 5 จังหวัดแรก และจังหวัดที่เหลือรวมเป็น "อื่นๆ"</div>
+            <div class="chart-box" style="height:250px"><canvas id="chartDamageShare"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">สัตว์ที่ได้รับความเสียหาย รายจังหวัด</div>
+            <div class="chart-sub">รวมทุกชนิดสัตว์ · หน่วย: ตัว</div>
+            <div class="chart-box"><canvas id="chartDamageProvince"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="chart-card">
+          <div class="chart-title">สรุปความเสียหายรายจังหวัด</div>
+          <div class="chart-sub">หน่วย: ตัว · เรียงตามจำนวนรวม</div>
+          <table class="table data-table">
+            <thead><tr id="damageTableHead"></tr></thead>
+            <tbody id="damageTableBody"></tbody>
+            <tfoot id="damageTableFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="sec-foot dash-footer justify-content-between gap-3"></div>
+    </section>
+
+    <footer class="dash-footer d-flex justify-content-between gap-3">
+      <div id="footerSource">ศูนย์อำนวยการป้องกันและแก้ไขปัญหาภัยพิบัติด้านปศุสัตว์ (ศปภ. ปศ.) กองส่งเสริมและพัฒนาการปศุสัตว์ กรมปศุสัตว์</div>
+      <div id="footerGenerated" class="text-nowrap"></div>
+    </footer>
+  </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+ *  1) CONFIGURATION — EDIT HERE IF THE REPORT'S HEADINGS CHANGE
+ * ---------------------------------------------------------------------
+ *  • Every table on every slide is read.
+ *  • A table is assigned to a section by the TEXT ON ITS SLIDE (the slide title),
+ *    using SECTIONS[...].keywords. Tables split over several slides are merged.
+ *  • Columns are matched when the header CONTAINS an alias (several matches are summed).
+ *  • Two-row headers (e.g. "อพยพสัตว์ (ตัว)" over "วันนี้ | สะสม") are combined automatically.
+ *  • Rows such as "รวม 30 จังหวัด", "ยอดเดิม", "วันนี้", "รวมสะสม" are not counted as provinces;
+ *    their figures are used as the official totals (USE_REPORT_TOTALS).
+ *  After uploading, open "ดูการจับคู่คอลัมน์" in the control panel to check the matching.
+ * ===================================================================== */
+const CONFIG = {
+  SECTIONS: {
+    impact: { label: 'ผลกระทบสัตว์ที่อยู่ในพื้นที่', keywords: ['ผลกระทบสัตว์ที่อยู่ในพื้นที่', 'ผลกระทบสัตว์'] },
+    assist: { label: 'การช่วยเหลือเฉพาะหน้า',      keywords: ['การช่วยเหลือเฉพาะหน้า', 'ช่วยเหลือเฉพาะหน้า'] },
+    damage: { label: 'สัตว์ที่ได้รับความเสียหาย',   keywords: ['สัตว์ที่ได้รับความเสียหาย', 'ความเสียหาย'] },
+  },
+
+  HEADER_SCAN_ROWS: 6,
+  SUMMARY_ROW_KEYWORDS: ['รวม', 'ยอดเดิม', 'วันนี้', 'total'], // rows (in the province column) that are totals, not provinces
+  DEFAULT_EXCLUDE: ['รวม', 'ลำดับ', 'ร้อยละ', '%'],             // never treat these columns as data
+  USE_REPORT_TOTALS: true,  // true = KPI totals use the report's own "รวม" rows; false = sum of provinces
+
+  PROVINCE: { aliases: ['จังหวัด'] },
+
+  // ▼ Section 1 — extra columns of the impact table
+  IMPACT_FIELDS: [
+    { key: 'district',    label: 'อำเภอ',             aliases: ['อำเภอ'] },
+    { key: 'subdistrict', label: 'ตำบล',              aliases: ['ตำบล'] },
+    { key: 'village',     label: 'หมู่บ้าน',            aliases: ['หมู่บ้าน'] },
+    { key: 'farmers',     label: 'เกษตรกร (ราย)',      aliases: ['เกษตรกร'] },
+    { key: 'pasture',     label: 'แปลงหญ้าเลี้ยงสัตว์ (ไร่)', aliases: ['แปลงหญ้า'] },
+  ],
+
+  // ▼ Animal species — used in sections 1 and 3
+  SPECIES: [
+    { key: 'cattle',  label: 'โค',       aliases: ['โค'],       icon: 'bi-circle-fill',  color: '#2563eb' },
+    { key: 'buffalo', label: 'กระบือ',   aliases: ['กระบือ'],    icon: 'bi-circle-fill',  color: '#7c3aed' },
+    { key: 'swine',   label: 'สุกร',     aliases: ['สุกร'],      icon: 'bi-circle-fill',  color: '#db2777' },
+    { key: 'goat',    label: 'แพะ/แกะ',  aliases: ['แพะ', 'แกะ'], icon: 'bi-circle-fill',  color: '#ea580c' },
+    { key: 'poultry', label: 'สัตว์ปีก', aliases: ['สัตว์ปีก'],   icon: 'bi-circle-fill',  color: '#ca8a04' },
+  ],
+  SPECIES_EXCLUDE: ['เกษตรกร', 'ราย', 'แปลงหญ้า', 'ไร่'],
+
+  // ▼ Section 2 — assistance items. Each has a "วันนี้" and a "สะสม" column in the report.
+  //   short = column title in the "ความช่วยเหลือวันนี้" table
+  ASSIST_ITEMS: [
+    { key: 'feed',      label: 'แจกเสบียงพืชอาหารสัตว์',       short: 'เสบียง (กก.)',   aliases: ['เสบียง', 'พืชอาหารสัตว์'], unit: 'กก.', icon: 'bi-basket',    color: '#ca8a04' },
+    { key: 'evacuate',  label: 'อพยพสัตว์',                   short: 'อพยพ (ตัว)',    aliases: ['อพยพ'],                 unit: 'ตัว', icon: 'bi-truck',     color: '#0891b2' },
+    { key: 'healthkit', label: 'สนับสนุนชุดส่งเสริมสุขภาพสัตว์', short: 'ชุดสุขภาพ (ชุด)', aliases: ['ส่งเสริมสุขภาพ'],        unit: 'ชุด', icon: 'bi-box-seam',  color: '#7c3aed' },
+    { key: 'treat',     label: 'รักษาสัตว์',                  short: 'รักษา (ตัว)',    aliases: ['รักษา'],                unit: 'ตัว', icon: 'bi-bandaid',   color: '#dc2626' },
+    { key: 'kits',      label: 'ถุงยังชีพสัตว์',               short: 'ถุงยังชีพ (ถุง)', aliases: ['ถุงยังชีพ'],            unit: 'ถุง', icon: 'bi-bag-heart', color: '#198754' },
+  ],
+  TODAY_WORD: 'วันนี้',   // sub-column for today's figures
+  CUM_WORD: 'สะสม',      // sub-column for cumulative figures
+
+  CHART: {
+    stackedExclude: ['poultry'], // species left out of the stacked "สัตว์ใหญ่" province chart (poultry would flatten the others)
+    shareTopN: 5,                // damage doughnut: top N provinces, the rest grouped as "อื่นๆ"
+    shareColors: ['#b91c1c', '#ea580c', '#ca8a04', '#65a30d', '#0891b2', '#9ca3af'],
+    rowHeight: 31,               // px per province in province charts (≈ table row height)
+    impactColor: '#2563eb',
+    damageColor: '#dc2626',
+  },
+  // ▼ Province map. Boundaries are downloaded once per visit from the first URL that works.
+  //   Any GeoJSON whose features carry a Thai or English province name is accepted.
+  MAP: {
+    urls: [
+      'https://cdn.jsdelivr.net/gh/chingchai/OpenGISData-Thailand@master/provinces.geojson',  // has pro_th (Thai names)
+      'https://cdn.jsdelivr.net/gh/apisit/thailand.json@master/thailand.json',                // English names
+    ],
+    impactMetric: 'farmers',  // what colours the section-1 map: 'farmers' | 'animals' | 'pasture' | a species key
+    labelTop: 6,              // how many top provinces get a name label on the map
+    impactPalette: ['#dbeafe', '#93c5fd', '#3b82f6', '#1d4ed8', '#1e3a8a'],
+    damagePalette: ['#fee2e2', '#fca5a5', '#ef4444', '#b91c1c', '#7f1d1d'],
+    emptyColor: '#e5e7eb',    // provinces not in the report
+    simplify: 0.004,          // degrees; drops tiny boundary details so drawing stays fast
+  },
+  EXPORT_SCALE: 3,               // default sharpness (can be changed in the page): 2 = 2560px, 3 = 3840px, 4 = 5120px wide
+  MAX_CANVAS_SIDE: 32000,        // Chrome/Edge limits: 32,767 px per side and ~268 M pixels in total;
+  MAX_CANVAS_AREA: 2.2e8,        //   the scale is lowered automatically when a capture would exceed them
+  PDF: {
+    format: 'a4',                // 'a4' | 'a3'
+    orientation: 'portrait',     // 'portrait' | 'landscape'
+    margin: 8,                   // mm
+    imageType: 'PNG',            // 'PNG' = sharpest; 'JPEG' = much smaller file
+  },
+};
+
+/* =====================================================================
+ *  2) UTILITIES
+ * ===================================================================== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = v => String(v ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+const fmt = n => (n == null || isNaN(n)) ? '–' : (Math.abs(n % 1) > 0.001 && Math.abs(n) < 1e5
+  ? n.toLocaleString('th-TH', { maximumFractionDigits: 2 }) : Math.round(n).toLocaleString('th-TH'));
+const fmtShort = n => n >= 1e6 ? (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + ' ล.' : fmt(n);
+function toNum(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  const s = String(v ?? '').replace(/[,\s]/g, '');
+  if (s === '' || /^[-–—]+$/.test(s)) return 0;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+const isBlank = v => v === '' || v == null || String(v).trim() === '';
+const isNumericLike = v => typeof v === 'number' || /^[-–—]$/.test(String(v).trim()) || /^-?[\d,]+(\.\d+)?$/.test(String(v).trim());
+// "1. ชัยนาท" → "ชัยนาท";  "จ.น่าน" → "น่าน"
+const normProvince = p => String(p || '').normalize('NFC').trim()
+  .replace(/^[\s\d๐-๙.)\-–:]+/, '').replace(/^(จ\.|จังหวัด)\s*/, '').trim();
+// Light tint of an accent colour, e.g. #2563eb → rgb(222,232,252). Used instead of CSS color-mix(),
+// which html2canvas 1.4 cannot parse ("unsupported color function").
+function softColor(hex, a = 0.14) {
+  const m = String(hex).trim().match(/^#?([0-9a-f]{6})$/i); if (!m) return '#eef6f1';
+  const n = parseInt(m[1], 16), mix = c => Math.round(c * a + 255 * (1 - a));
+  return `rgb(${mix(n >> 16)},${mix(n >> 8 & 255)},${mix(n & 255)})`;
+}
+function applySoftColors() {
+  document.querySelectorAll('#dashboard [style*="--accent"]').forEach(el =>
+    el.style.setProperty('--accent-soft', softColor(el.style.getPropertyValue('--accent'))));
+}
+const sumKeys = (obj, keys) => keys.reduce((s, k) => s + (obj[k] || 0), 0);
+const SPECIES_KEYS = CONFIG.SPECIES.map(s => s.key);
+const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+/* =====================================================================
+ *  3) READ .PPTX (zip → slide XML → tables)
+ * ===================================================================== */
+const NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+const NS_P = 'http://schemas.openxmlformats.org/presentationml/2006/main';
+const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+async function unzip(buf) {
+  const dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('ไฟล์นี้ไม่ใช่ .pptx ที่ถูกต้อง');
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder(), entries = {};
+  for (let i = 0; i < count && dv.getUint32(p, true) === 0x02014b50; i++) {
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const off = dv.getUint32(p + 42, true);
+    entries[dec.decode(new Uint8Array(buf, p + 46, nlen))] = { method, csize, off };
+    p += 46 + nlen + xlen + clen;
+  }
+  return {
+    names: Object.keys(entries),
+    async text(name) {
+      const e = entries[name]; if (!e) return null;
+      const start = e.off + 30 + dv.getUint16(e.off + 26, true) + dv.getUint16(e.off + 28, true);
+      const data = new Uint8Array(buf, start, e.csize);
+      let out;
+      if (e.method === 0) out = data;
+      else if (e.method === 8) {
+        if (typeof DecompressionStream === 'undefined') throw new Error('เบราว์เซอร์นี้เก่าเกินไป — กรุณาใช้ Chrome/Edge รุ่นล่าสุด');
+        out = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      } else throw new Error('รูปแบบการบีบอัดไฟล์ไม่รองรับ');
+      return dec.decode(out);
+    },
+  };
+}
+
+const insideTable = n => { for (let e = n.parentNode; e; e = e.parentNode) if (e.localName === 'tbl' && e.namespaceURI === NS_A) return true; return false; };
+function paraText(p) {
+  let s = '';
+  for (const n of p.getElementsByTagNameNS(NS_A, '*')) {
+    if (n.localName === 't') s += n.textContent; else if (n.localName === 'br') s += ' ';
+  }
+  return s.replace(/\s+/g, ' ').trim();
+}
+// One <a:tc> = one grid column. Merged cells (hMerge / vMerge) take the value of the cell they continue.
+function tableToAoa(tbl) {
+  const aoa = [];
+  [...tbl.getElementsByTagNameNS(NS_A, 'tr')].forEach((tr, r) => {
+    const row = [];
+    [...tr.children].filter(c => c.localName === 'tc').forEach((tc, c) => {
+      let v = [...tc.getElementsByTagNameNS(NS_A, 'p')].map(paraText).filter(Boolean).join(' ');
+      if (!v && tc.getAttribute('hMerge') === '1') v = row[c - 1] ?? '';
+      if (!v && tc.getAttribute('vMerge') === '1') v = aoa[r - 1]?.[c] ?? '';
+      row.push(v);
+    });
+    aoa.push(row);
+  });
+  return aoa;
+}
+
+async function readPptxSlides(buf) {
+  const zip = await unzip(buf);
+  const xml = async n => { const t = await zip.text(n); return t ? new DOMParser().parseFromString(t, 'application/xml') : null; };
+  // slide order as shown in PowerPoint
+  let paths = [];
+  const pres = await xml('ppt/presentation.xml'), rels = await xml('ppt/_rels/presentation.xml.rels');
+  if (pres && rels) {
+    const map = {};
+    [...rels.getElementsByTagName('Relationship')].forEach(r => (map[r.getAttribute('Id')] = r.getAttribute('Target')));
+    paths = [...pres.getElementsByTagNameNS(NS_P, 'sldId')].map(s => map[s.getAttributeNS(NS_R, 'id')]).filter(Boolean)
+      .map(t => t.startsWith('/') ? t.slice(1) : 'ppt/' + t.replace(/^\.\//, ''));
+  }
+  if (!paths.length) paths = zip.names.filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => +a.match(/(\d+)\.xml$/)[1] - +b.match(/(\d+)\.xml$/)[1]);
+
+  const slides = [];
+  for (const [i, path] of paths.entries()) {
+    const doc = await xml(path); if (!doc) continue;
+    const text = [...doc.getElementsByTagNameNS(NS_A, 'p')].filter(p => !insideTable(p)).map(paraText).filter(Boolean).join('\n');
+    const tables = [...doc.getElementsByTagNameNS(NS_A, 'tbl')].map(tableToAoa);
+    slides.push({ no: i + 1, text, tables });
+  }
+  return slides;
+}
+
+/* =====================================================================
+ *  4) FLEXIBLE TABLE PARSER (header row auto-detected, 2-row headers combined)
+ * ===================================================================== */
+function fieldsFor(type) {
+  const prov = { key: 'province', label: 'จังหวัด', aliases: CONFIG.PROVINCE.aliases, text: true };
+  const species = CONFIG.SPECIES.map(s => ({ ...s, exclude: CONFIG.SPECIES_EXCLUDE }));
+  if (type === 'impact') return [prov, ...CONFIG.IMPACT_FIELDS, ...species];
+  if (type === 'damage') return [prov, ...species];
+  // assist: one field for the cumulative column, one for today's column
+  return [prov, ...CONFIG.ASSIST_ITEMS.flatMap(it => [
+    { ...it, label: `${it.label} (สะสม)`, exclude: [CONFIG.TODAY_WORD] },
+    { ...it, key: it.key + '_today', label: `${it.label} (วันนี้)`, mustInclude: [CONFIG.TODAY_WORD], exclude: [CONFIG.CUM_WORD] },
+  ])];
+}
+
+function matchCols(headers, field) {
+  const aliases = field.aliases.map(norm);
+  const excl = (field.text ? [] : [...CONFIG.DEFAULT_EXCLUDE, ...(field.exclude || [])]).map(norm);
+  const must = (field.mustInclude || []).map(norm);
+  const out = [];
+  headers.forEach((h, i) => {
+    if (!h) return;
+    if (aliases.some(a => h.includes(a)) && !excl.some(e => h.includes(e)) && must.every(m => h.includes(m))) out.push(i);
+  });
+  return field.text ? out.slice(0, 1) : out;
+}
+
+function detectHeader(aoa, fields) {
+  let best = { idx: -1, score: 0 };
+  for (let i = 0; i < Math.min(aoa.length, CONFIG.HEADER_SCAN_ROWS); i++) {
+    const hdr = (aoa[i] || []).map(norm);
+    const score = fields.filter(f => matchCols(hdr, f).length).length;
+    if (score > best.score) best = { idx: i, score };
+  }
+  return best;
+}
+function isTextRow(r) {
+  if (!r) return false;
+  const vals = r.filter(v => !isBlank(v));
+  return new Set(vals.map(norm)).size >= 2 && !vals.some(isNumericLike);
+}
+function combineHeaders(parent, child, width) {
+  const out = []; let last = '';
+  for (let c = 0; c < width; c++) {
+    let p = norm(parent[c]); const ch = norm(child[c]);
+    if (p) last = p; else if (ch) p = last;
+    out.push(p && ch && p !== ch ? `${p} ${ch}` : (ch || p));
+  }
+  return out;
+}
+function buildHeaders(aoa, idx) {
+  const row = aoa[idx] || [], next = aoa[idx + 1];
+  const width = Math.max(row.length, next?.length || 0);
+  if (isTextRow(next)) return { headers: combineHeaders(row, next, width), dataStart: idx + 2 };
+  return { headers: Array.from({ length: width }, (_, c) => norm(row[c])), dataStart: idx + 1 };
+}
+
+// prevHeaders: header of the previous table of the same section (for continuation tables without a header)
+function parseTable(aoa, type, prevHeaders) {
+  const fields = fieldsFor(type);
+  const det = detectHeader(aoa, fields);
+  let headers, dataStart;
+  if (det.score >= 2) ({ headers, dataStart } = buildHeaders(aoa, det.idx));
+  else if (prevHeaders) { headers = prevHeaders; dataStart = 0; }
+  else return null;
+
+  const map = {};
+  fields.forEach(f => (map[f.key] = matchCols(headers, f)));
+  const pIdx = map.province[0] ?? 0;
+  const summaryKw = CONFIG.SUMMARY_ROW_KEYWORDS.map(norm);
+  const records = [], summary = [];
+
+  for (let r = dataStart; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    if (row.every(isBlank)) continue;
+    const label = String(row[pIdx] ?? '').trim();
+    const vals = {}, present = {};
+    let any = false;
+    fields.forEach(f => {
+      if (f.text) return;
+      vals[f.key] = map[f.key].reduce((s, c) => s + toNum(row[c]), 0);
+      present[f.key] = map[f.key].some(c => !isBlank(row[c]));
+      if (vals[f.key]) any = true;
+    });
+    if (summaryKw.some(k => norm(label).includes(k))) { summary.push({ label, vals, present }); continue; }
+    if (!label || !any && !Object.values(present).some(Boolean)) continue;
+    records.push({ province: normProvince(label), ...vals });
+  }
+  return { headers, records, summary, fields,
+    mapping: fields.map(f => ({ key: f.key, label: f.label, cols: map[f.key].map(i => headers[i]) })) };
+}
+
+function parseSlides(slides) {
+  const kw = Object.entries(CONFIG.SECTIONS).flatMap(([k, s]) => s.keywords.map(w => [k, norm(w)]));
+  const data = {};
+  const lastHeaders = {};
+  for (const sl of slides) {
+    const t = norm(sl.text);
+    for (const aoa of sl.tables) {
+      // section = keyword that appears first in the slide text; fallback = best header match
+      let type = null, pos = Infinity;
+      kw.forEach(([k, w]) => { const i = t.indexOf(w); if (i >= 0 && i < pos) { pos = i; type = k; } });
+      if (!type) {
+        let best = 0;
+        Object.keys(CONFIG.SECTIONS).forEach(k => { const s = detectHeader(aoa, fieldsFor(k)).score; if (s > best) { best = s; type = k; } });
+      }
+      if (!type) continue;
+      const parsed = parseTable(aoa, type, lastHeaders[type]);
+      if (!parsed) continue;
+      lastHeaders[type] = parsed.headers;
+      const d = data[type] ||= { records: [], summary: [], slides: [], mapping: parsed.mapping, fields: parsed.fields };
+      d.records.push(...parsed.records); d.summary.push(...parsed.summary); d.slides.push(sl.no);
+    }
+  }
+  Object.values(data).forEach(d => {
+    d.missing = d.mapping.filter(m => !m.cols.length).map(m => m.label);
+    d.sum = {};
+    d.records.forEach(r => Object.keys(r).forEach(k => { if (k !== 'province') d.sum[k] = (d.sum[k] || 0) + r[k]; }));
+    // official totals from the report's own rows ("รวม…", "วันนี้"); "ยอดเดิม" is the previous balance → ignored
+    d.official = {};
+    d.summary.filter(s => !norm(s.label).includes('ยอดเดิม'))
+      .forEach(s => Object.keys(s.vals).forEach(k => { if (s.present[k]) d.official[k] = s.vals[k]; }));
+    d.total = CONFIG.USE_REPORT_TOTALS ? { ...d.sum, ...d.official } : { ...d.sum };
+    d.mismatch = Object.keys(d.official).filter(k => Math.abs((d.official[k] || 0) - (d.sum[k] || 0)) > 0.5)
+      .map(k => ({ key: k, label: d.mapping.find(m => m.key === k)?.label || k, report: d.official[k], sum: d.sum[k] || 0 }));
+  });
+  return data;
+}
+
+// "ข้อมูล ณ วันที่ 8 ตุลาคม 2569 เวลา 18.00 น." and "ช่วงภัย วันที่ 12 กันยายน 2569 – 7 ตุลาคม 2569"
+function parseMeta(slides) {
+  const all = slides.map(s => s.text).join('\n');
+  const dates = {};
+  for (const m of all.matchAll(/ข้อมูล\s*ณ\s*วันที่\s*(\d{1,2})\s*([ก-๙.]+)\s*(\d{4})(?:\s*เวลา\s*([\d.:]+)\s*น\.?)?/g)) {
+    const key = `${m[1]}|${m[2]}|${m[3]}|${m[4] || ''}`; dates[key] = (dates[key] || 0) + 1;
+  }
+  const top = Object.keys(dates).sort((a, b) => dates[b] - dates[a])[0];
+  const meta = { dateText: null, timeText: null, iso: null, period: null, hazard: null, dateVariants: Object.keys(dates).length };
+  if (top) {
+    const [d, mon, y, time] = top.split('|');
+    meta.dateText = `${d} ${mon} ${y}`;
+    meta.timeText = time ? `เวลา ${time} น.` : null;
+    let mi = THAI_MONTHS.indexOf(mon); if (mi < 0) mi = THAI_MONTHS_SHORT.indexOf(mon);
+    const gy = +y > 2400 ? +y - 543 : +y;
+    if (mi >= 0) meta.iso = `${gy}-${String(mi + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const per = all.match(/ช่วงภัย\s*(?:วันที่\s*)?(\d{1,2}\s*[ก-๙.]+\s*\d{4}\s*[–\-]\s*\d{1,2}\s*[ก-๙.]+\s*\d{4})/);
+  if (per) meta.period = per[1].replace(/\s*[–\-]\s*/, ' – ');
+  const hz = all.match(/พื้นที่\s*([ก-๙]+?)\s*ช่วงภัย/);
+  if (hz) meta.hazard = hz[1];
+  return meta;
+}
+
+/* =====================================================================
+ *  5) STATE
+ * ===================================================================== */
+const state = { data: {}, meta: {}, fileName: null, isSample: false, error: null };
+
+function byProvince(sec, valueFn) {
+  const m = new Map();
+  sec?.records.forEach(r => m.set(r.province, (m.get(r.province) || 0) + valueFn(r)));
+  return m;
+}
+
+/* =====================================================================
+ *  6) CHARTS
+ * ===================================================================== */
+const charts = {};
+// Draws numbers on bars so values are readable in the PNG.
+//   options: enabled, format(v), only:[datasetIndex,...], stackTotal (one total at the end of a stacked bar)
+const valueLabels = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart, _a, opts) {
+    if (!opts?.enabled) return;
+    const { ctx } = chart; const horiz = chart.options.indexAxis === 'y'; const f = opts.format || fmtShort;
+    ctx.save(); ctx.font = "600 11px 'Sarabun', sans-serif"; ctx.fillStyle = '#374151';
+    const draw = (txt, x, y) => {
+      if (horiz) { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(txt, x + 5, y); }
+      else { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(txt, x, y - 3); }
+    };
+    if (opts.stackTotal) {
+      chart.data.labels.forEach((_, j) => {
+        let sum = 0, x = -Infinity, y = Infinity;
+        chart.data.datasets.forEach((ds, i) => {
+          const m = chart.getDatasetMeta(i); if (m.hidden || !m.data[j]) return;
+          sum += +ds.data[j] || 0;
+          if (horiz) { x = Math.max(x, m.data[j].x); y = m.data[j].y; } else { x = m.data[j].x; y = Math.min(y, m.data[j].y); }
+        });
+        if (sum) draw(f(sum), x, y);
+      });
+    } else {
+      chart.data.datasets.forEach((ds, i) => {
+        if (opts.only && !opts.only.includes(i)) return;
+        const meta = chart.getDatasetMeta(i); if (meta.hidden) return;
+        meta.data.forEach((el, j) => { const v = ds.data[j]; if (v) draw(f(v, j), el.x, el.y); });
+      });
+    }
+    ctx.restore();
+  },
+};
+// Big number in the middle of a doughnut: options.plugins.centerText = { title, sub }
+const centerText = {
+  id: 'centerText',
+  afterDraw(chart, _a, opts) {
+    if (!opts?.title || chart.config.type !== 'doughnut') return;
+    const arc = chart.getDatasetMeta(0)?.data?.[0]; if (!arc) return;
+    const { ctx } = chart;
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#111827'; ctx.font = "700 19px 'Sarabun', sans-serif"; ctx.fillText(opts.title, arc.x, arc.y - 8);
+    ctx.fillStyle = '#6b7280'; ctx.font = "500 12px 'Sarabun', sans-serif"; ctx.fillText(opts.sub || '', arc.x, arc.y + 13);
+    ctx.restore();
+  },
+};
+const noData = {
+  id: 'noData',
+  afterDraw(chart) {
+    const total = chart.data.datasets.reduce((s, d) => s + d.data.reduce((a, b) => a + (+b || 0), 0), 0);
+    if (total > 0 || !chart.chartArea) return;
+    const { ctx, chartArea: a } = chart;
+    ctx.save(); ctx.fillStyle = '#9ca3af'; ctx.font = "500 14px 'Sarabun', sans-serif";
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('ยังไม่มีข้อมูล — กรุณาอัปโหลดไฟล์', (a.left + a.right) / 2, (a.top + a.bottom) / 2);
+    ctx.restore();
+  },
+};
+function hbar(canvas, color, unit, extra = {}) {
+  return new Chart(canvas, {
+    type: 'bar',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: color, borderRadius: 3, maxBarThickness: 18 }] },
+    options: {
+      indexAxis: 'y',
+      layout: { padding: { right: 56 } },
+      plugins: { legend: { display: false }, valueLabels: { enabled: true },
+                 tooltip: { callbacks: { label: c => `${c.dataset.label ? c.dataset.label + ': ' : ''}${fmt(c.raw)} ${unit}` } } },
+      scales: { x: { beginAtZero: true, stacked: !!extra.stacked, grid: { color: '#eef0f2' }, ticks: { maxTicksLimit: 5, callback: v => fmtShort(v) } },
+                y: { stacked: !!extra.stacked, grid: { display: false }, ticks: { autoSkip: false, font: { size: 11 } } } },
+    },
+  });
+}
+// Legend entries show "label  value (percent)"
+const legendWithValues = chart => {
+  const base = Chart.overrides.doughnut.plugins.legend.labels.generateLabels(chart);
+  const d = chart.data.datasets[0].data, tot = d.reduce((a, b) => a + (+b || 0), 0);
+  return base.map((l, i) => ({ ...l, text: `${l.text}  ${fmt(d[i])} (${tot ? pct(d[i], tot) : '0%'})` }));
+};
+function doughnut(canvas, legendPosition, unit) {
+  return new Chart(canvas, {
+    type: 'doughnut',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderColor: '#fff', borderWidth: 2 }] },
+    options: {
+      cutout: '60%',
+      plugins: {
+        legend: { position: legendPosition, labels: { boxWidth: 12, padding: 10, font: { size: 12 }, generateLabels: legendWithValues } },
+        tooltip: { callbacks: { label: c => `${c.label}: ${fmt(c.raw)} ${unit}` } },
+        centerText: {},
+      },
+    },
+  });
+}
+function fitHeight(chart, n, perRow, extra = 50) {
+  chart.canvas.parentElement.style.height = Math.max(160, extra + n * perRow) + 'px';
+  chart.resize();
+}
+
+function initCharts() {
+  Chart.register(valueLabels, noData, centerText);
+  Chart.defaults.font.family = "'Sarabun', sans-serif";
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = '#374151';
+  Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.devicePixelRatio = Math.max(window.devicePixelRatio || 1, 2);
+
+  // Section 1
+  charts.impactSpecies = doughnut($('#chartImpactSpecies'), 'right', 'ตัว');
+  charts.impactSpecies.options.plugins.legend.display = false;   // replaced by the large HTML legend
+  charts.impactProvince = hbar($('#chartImpactProvince'), CONFIG.CHART.impactColor, 'ตัว', { stacked: true });
+  charts.impactProvince.options.plugins.legend = { display: true, position: 'top', labels: { boxWidth: 12 } };
+  charts.impactProvince.options.plugins.valueLabels = { enabled: true, stackTotal: true };
+
+  // Section 2: 100% stacked bar — previous balance vs today's addition
+  charts.assistToday = new Chart($('#chartAssistToday'), {
+    type: 'bar',
+    data: { labels: CONFIG.ASSIST_ITEMS.map(it => it.short.replace(/\s*\(.*\)\s*/, '')), datasets: [
+      { label: 'ยอดเดิม', data: [], backgroundColor: CONFIG.ASSIST_ITEMS.map(it => it.color), raw: [] },
+      { label: 'เพิ่มวันนี้', data: [], backgroundColor: CONFIG.ASSIST_ITEMS.map(it => softColor(it.color, 0.4)), raw: [] },
+    ] },
+    options: {
+      indexAxis: 'y',
+      layout: { padding: { right: 92 } },
+      plugins: {
+        legend: { display: false },
+        valueLabels: { enabled: true, only: [1], format: (v, j) => `วันนี้ ${v > 0 && v < 0.01 ? '<0.01' : v.toLocaleString('th-TH', { maximumFractionDigits: 2 })}%` },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmt(c.dataset.raw[c.dataIndex])} ${CONFIG.ASSIST_ITEMS[c.dataIndex].unit} (${c.raw.toLocaleString('th-TH', { maximumFractionDigits: 2 })}%)` } },
+      },
+      scales: {
+        x: { stacked: true, min: 0, max: 100, grid: { color: '#eef0f2' }, ticks: { callback: v => v + '%', maxTicksLimit: 5 } },
+        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 12, weight: '600' } } },
+      },
+    },
+  });
+  $('#todayTableHead').innerHTML = `<tr><th>จังหวัด</th>${CONFIG.ASSIST_ITEMS.map(it => `<th class="num">${esc(it.short)}</th>`).join('')}</tr>`;
+  $('#heatHead').innerHTML = `<tr><th>จังหวัด</th>${CONFIG.ASSIST_ITEMS.map(it => `<th class="num" style="color:${it.color}">${esc(it.short)}</th>`).join('')}</tr>`;
+
+  // Section 3
+  charts.damageShare = doughnut($('#chartDamageShare'), 'right', 'ตัว');
+  setupMap('impact', 'mapImpact', 'mapImpactLegend', CONFIG.MAP.impactPalette, 'ราย');
+  setupMap('damage', 'mapDamage', 'mapDamageLegend', CONFIG.MAP.damagePalette, 'ตัว');
+  charts.damageProvince = hbar($('#chartDamageProvince'), CONFIG.CHART.damageColor, 'ตัว');
+  $('#damageTableHead').innerHTML = `<th>จังหวัด</th>${CONFIG.SPECIES.map(s => `<th class="num">${esc(s.label)}</th>`).join('')}<th class="num">รวม</th>`;
+}
+
+/* =====================================================================
+ *  6b) PROVINCE MAP (canvas choropleth — exported correctly by html2canvas)
+ * ===================================================================== */
+// English → Thai province names (for map files that only carry English names). Keys: lowercase letters only.
+const EN2TH = {
+  bangkok: 'กรุงเทพมหานคร', bangkokmetropolis: 'กรุงเทพมหานคร', krungthepmahanakhon: 'กรุงเทพมหานคร',
+  amnatcharoen: 'อำนาจเจริญ', angthong: 'อ่างทอง', buengkan: 'บึงกาฬ', bungkan: 'บึงกาฬ', buriram: 'บุรีรัมย์',
+  chachoengsao: 'ฉะเชิงเทรา', chainat: 'ชัยนาท', chaiyaphum: 'ชัยภูมิ', chanthaburi: 'จันทบุรี', chiangmai: 'เชียงใหม่',
+  chiangrai: 'เชียงราย', chonburi: 'ชลบุรี', chumphon: 'ชุมพร', kalasin: 'กาฬสินธุ์', kamphaengphet: 'กำแพงเพชร',
+  kanchanaburi: 'กาญจนบุรี', khonkaen: 'ขอนแก่น', krabi: 'กระบี่', lampang: 'ลำปาง', lamphun: 'ลำพูน', loei: 'เลย',
+  lopburi: 'ลพบุรี', maehongson: 'แม่ฮ่องสอน', mahasarakham: 'มหาสารคาม', mukdahan: 'มุกดาหาร', nakhonnayok: 'นครนายก',
+  nakhonpathom: 'นครปฐม', nakhonphanom: 'นครพนม', nakhonratchasima: 'นครราชสีมา', nakhonsawan: 'นครสวรรค์',
+  nakhonsithammarat: 'นครศรีธรรมราช', nan: 'น่าน', narathiwat: 'นราธิวาส', nongbualamphu: 'หนองบัวลำภู',
+  nongkhai: 'หนองคาย', nonthaburi: 'นนทบุรี', pathumthani: 'ปทุมธานี', pattani: 'ปัตตานี', phangnga: 'พังงา',
+  phatthalung: 'พัทลุง', phayao: 'พะเยา', phetchabun: 'เพชรบูรณ์', phetchaburi: 'เพชรบุรี', phichit: 'พิจิตร',
+  phitsanulok: 'พิษณุโลก', phranakhonsiayutthaya: 'พระนครศรีอยุธยา', ayutthaya: 'พระนครศรีอยุธยา', phrae: 'แพร่',
+  phuket: 'ภูเก็ต', prachinburi: 'ปราจีนบุรี', prachuapkhirikhan: 'ประจวบคีรีขันธ์', ranong: 'ระนอง', ratchaburi: 'ราชบุรี',
+  rayong: 'ระยอง', roiet: 'ร้อยเอ็ด', sakaeo: 'สระแก้ว', sakaew: 'สระแก้ว', sakonnakhon: 'สกลนคร', samutprakan: 'สมุทรปราการ',
+  samutprakarn: 'สมุทรปราการ', samutsakhon: 'สมุทรสาคร', samutsongkhram: 'สมุทรสงคราม', saraburi: 'สระบุรี', satun: 'สตูล',
+  singburi: 'สิงห์บุรี', sisaket: 'ศรีสะเกษ', srisaket: 'ศรีสะเกษ', songkhla: 'สงขลา', sukhothai: 'สุโขทัย',
+  suphanburi: 'สุพรรณบุรี', suratthani: 'สุราษฎร์ธานี', surin: 'สุรินทร์', tak: 'ตาก', trang: 'ตรัง', trat: 'ตราด',
+  ubonratchathani: 'อุบลราชธานี', udonthani: 'อุดรธานี', uthaithani: 'อุทัยธานี', uttaradit: 'อุตรดิตถ์', yala: 'ยะลา',
+  yasothon: 'ยโสธร',
+};
+const THAI_PROVINCES = new Set(Object.values(EN2TH));
+const mapState = { geo: null, status: 'loading', error: null };
+// Resolution of charts & maps. Normally 2× the screen; raised to the export scale while exporting so the
+// canvases are as sharp as the surrounding text (html2canvas copies canvas pixels, it cannot re-render them).
+let RENDER_SCALE = null;
+const currentDpr = () => RENDER_SCALE || Math.max(window.devicePixelRatio || 1, 2);
+function setRenderScale(scale) {
+  RENDER_SCALE = scale;
+  Object.values(charts).forEach(c => { c.options.devicePixelRatio = currentDpr(); c.resize(); c.update('none'); });
+  redrawMaps();
+}
+const MAPS = {};   // key → { canvas, legendEl, palette, unit, values: Map, paths }
+
+function featureThaiName(props) {
+  for (const v of Object.values(props || {})) {
+    if (typeof v !== 'string') continue;
+    const th = normProvince(v);
+    if (THAI_PROVINCES.has(th)) return th;
+    const en = EN2TH[v.toLowerCase().replace(/province|changwat/g, '').replace(/[^a-z]/g, '')];
+    if (en) return en;
+  }
+  return null;
+}
+function ringCentroid(r) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    const f = r[j][0] * r[i][1] - r[i][0] * r[j][1];
+    a += f; cx += (r[j][0] + r[i][0]) * f; cy += (r[j][1] + r[i][1]) * f;
+  }
+  if (!a) return r[0];
+  return [cx / (3 * a), cy / (3 * a)];
+}
+function ringArea(r) { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += r[j][0] * r[i][1] - r[i][0] * r[j][1]; return Math.abs(a / 2); }
+
+function prepareGeo(gj) {
+  if (!gj || !Array.isArray(gj.features)) throw new Error('ไม่ใช่ไฟล์ GeoJSON');
+  const K = Math.cos(13.5 * Math.PI / 180), tol = CONFIG.MAP.simplify;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const features = [];
+  for (const f of gj.features) {
+    const name = featureThaiName(f.properties); const g = f.geometry;
+    if (!name || !g) continue;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    const rings = []; let big = null, bigA = -1;
+    for (const poly of polys) for (const ring of poly) {
+      const r = []; let lx, ly;
+      for (const [lon, lat] of ring) {
+        const x = lon * K, y = -lat;
+        if (r.length && Math.abs(x - lx) < tol && Math.abs(y - ly) < tol) continue;
+        r.push([x, y]); lx = x; ly = y;
+        if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+      if (r.length > 2) { rings.push(r); const ar = ringArea(r); if (ar > bigA) { bigA = ar; big = r; } }
+    }
+    if (rings.length) features.push({ name, rings, label: ringCentroid(big) });
+  }
+  if (features.length < 60) throw new Error(`พบจังหวัดบนแผนที่เพียง ${features.length} จังหวัด`);
+  return { features, bbox: [minX, minY, maxX, maxY] };
+}
+
+async function loadThaiMap() {
+  for (const url of CONFIG.MAP.urls) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      mapState.geo = prepareGeo(await r.json());
+      mapState.status = 'ok';
+      break;
+    } catch (e) { mapState.error = e.message; }
+  }
+  if (!mapState.geo) mapState.status = 'error';
+  redrawMaps();
+  renderControlPanel();
+}
+
+// 5 colour classes from quantiles of the non-zero values; legend shows the real min–max inside each class
+function mapClasses(values, palette) {
+  const v = [...values.values()].filter(x => x > 0).sort((a, b) => a - b);
+  if (!v.length) return { colorOf: () => null, legend: [] };
+  const k = Math.min(palette.length, new Set(v).size);
+  const cuts = [];
+  for (let i = 1; i < k; i++) cuts.push(v[Math.floor(i * v.length / k)]);
+  const uniq = [...new Set(cuts)];
+  const cls = x => uniq.filter(c => x >= c).length;
+  const pal = palette.slice(palette.length - (uniq.length + 1));      // use the darker end when fewer classes
+  const legend = pal.map((color, i) => {
+    const inCls = v.filter(x => cls(x) === i);
+    return inCls.length ? { color, lo: inCls[0], hi: inCls[inCls.length - 1] } : null;
+  }).filter(Boolean);
+  return { colorOf: x => x > 0 ? pal[cls(x)] : null, legend };
+}
+
+function setupMap(key, canvasId, legendId, palette, unit) {
+  const canvas = document.getElementById(canvasId);
+  const box = canvas.parentElement, tip = box.querySelector('.map-tip');
+  MAPS[key] = { canvas, box, tip, legendEl: document.getElementById(legendId), palette, unit, values: new Map(), paths: [] };
+  canvas.addEventListener('mousemove', e => {
+    const m = MAPS[key]; if (!m.paths.length) return;
+    const rect = canvas.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const ctx = canvas.getContext('2d'), dpr = canvas.width / rect.width;
+    const hit = m.paths.find(p => ctx.isPointInPath(p.path, x * dpr, y * dpr, 'evenodd'));
+    if (!hit) { tip.style.display = 'none'; return; }
+    tip.textContent = `${hit.name}: ${hit.v ? fmt(hit.v) + ' ' + unit : 'ไม่ได้รับผลกระทบ'}`;
+    tip.style.display = 'block'; tip.style.left = (x + 12) + 'px'; tip.style.top = (y + 12) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => (tip.style.display = 'none'));
+}
+
+function drawMap(key) {
+  const m = MAPS[key]; if (!m) return;
+  const status = m.box.querySelector('.map-status');
+  const geo = mapState.geo;
+  if (!geo) {
+    m.canvas.style.height = '420px'; m.canvas.width = 1; m.canvas.height = 1; m.paths = [];
+    status.style.display = 'flex';
+    status.textContent = mapState.status === 'loading' ? 'กำลังโหลดแผนที่…' : 'โหลดแผนที่ไม่สำเร็จ — ต้องเชื่อมต่ออินเทอร์เน็ต (ดูรายละเอียดในแผงควบคุม)';
+    m.legendEl.innerHTML = '';
+    return;
+  }
+  status.style.display = 'none';
+  const [x0, y0, x1, y1] = geo.bbox, pad = 6;
+  const w = m.box.clientWidth || 480, s = (w - 2 * pad) / (x1 - x0), h = Math.round((y1 - y0) * s + 2 * pad);
+  const dpr = currentDpr();
+  m.canvas.width = Math.round(w * dpr); m.canvas.height = Math.round(h * dpr);
+  m.canvas.style.height = h + 'px';
+  const ctx = m.canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const X = x => pad + (x - x0) * s, Y = y => pad + (y - y0) * s;
+  const { colorOf, legend } = mapClasses(m.values, m.palette);
+
+  m.paths = geo.features.map(f => {
+    const path = new Path2D();
+    f.rings.forEach(r => { r.forEach(([x, y], i) => i ? path.lineTo(X(x), Y(y)) : path.moveTo(X(x), Y(y))); path.closePath(); });
+    const v = m.values.get(f.name) || 0;
+    ctx.fillStyle = colorOf(v) || CONFIG.MAP.emptyColor;
+    ctx.fill(path, 'evenodd');
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.6; ctx.stroke(path);
+    return { path, name: f.name, v, label: f.label };
+  });
+
+  // Labels for the top provinces (skips a label that would overlap one already drawn)
+  const placed = [];
+  const top = [...m.paths].filter(p => p.v > 0).sort((a, b) => b.v - a.v).slice(0, CONFIG.MAP.labelTop);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  for (const p of top) {
+    const cx = X(p.label[0]), cy = Y(p.label[1]);
+    const line1 = p.name, line2 = fmtShort(p.v);
+    ctx.font = "700 11px 'Sarabun', sans-serif"; const w1 = ctx.measureText(line1).width;
+    ctx.font = "600 10px 'Sarabun', sans-serif"; const w2 = ctx.measureText(line2).width;
+    const bw = Math.max(w1, w2) + 6, bh = 26;
+    const spot = [[0, 0], [0, -24], [0, 24], [-bw * 0.7, 0], [bw * 0.7, 0], [0, -46], [0, 46]].map(([dx, dy]) => [cx + dx, cy + dy])
+      .find(([x, y]) => !placed.some(b => Math.abs(b[0] - x) < (b[2] + bw) / 2 && Math.abs(b[1] - y) < (b[3] + bh) / 2));
+    if (!spot) continue;
+    const [lx, ly] = spot; placed.push([lx, ly, bw, bh]);
+    if (lx !== cx || ly !== cy) { ctx.strokeStyle = '#374151'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(lx, ly + (ly > cy ? -bh / 2 : ly < cy ? bh / 2 : 0)); ctx.stroke(); }
+    [[line1, ly - 6, "700 11px 'Sarabun', sans-serif"], [line2, ly + 7, "600 10px 'Sarabun', sans-serif"]].forEach(([t, ty, font]) => {
+      ctx.font = font; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.92)'; ctx.strokeText(t, lx, ty);
+      ctx.fillStyle = '#111827'; ctx.fillText(t, lx, ty);
+    });
+  }
+
+  m.legendEl.innerHTML = legend.map(l => `<span><span class="sw" style="background:${l.color}"></span>${l.lo === l.hi ? fmt(l.lo) : `${fmt(l.lo)} – ${fmt(l.hi)}`}</span>`).join('')
+    + `<span><span class="sw" style="background:${CONFIG.MAP.emptyColor}"></span>ไม่อยู่ในรายงาน</span>`;
+}
+function redrawMaps() { Object.keys(MAPS).forEach(drawMap); }
+// names in the report that have no shape on the map (spelling differences)
+function unmatchedOnMap() {
+  if (!mapState.geo) return [];
+  const names = new Set(mapState.geo.features.map(f => f.name));
+  const out = new Set();
+  Object.values(state.data).forEach(d => d.records.forEach(r => { if (!names.has(r.province)) out.add(r.province); }));
+  return [...out];
+}
+
+/* =====================================================================
+ *  7) RENDER
+ * ===================================================================== */
+const setText = (id, v) => { $('#' + id).textContent = v; };
+const setSub = (id, v) => { $('#' + id).innerHTML = v ? esc(v) : '&nbsp;'; };
+
+function render() {
+  const { impact, assist, damage } = state.data;
+  const meta = state.meta;
+
+  // ---- Header ----
+  $('#dashTitle').textContent = meta.hazard ? `รายงานสถานการณ์${meta.hazard}ด้านปศุสัตว์` : 'รายงานสถานการณ์ภัยพิบัติด้านปศุสัตว์';
+  $('#dashPeriod').innerHTML = meta.period ? `ช่วงภัย วันที่ ${esc(meta.period)}` : '&nbsp;';
+  $('#reportDate').textContent = meta.dateText || '–';
+  $('#reportTime').innerHTML = meta.timeText ? esc(meta.timeText) : '&nbsp;';
+  $('#sampleBadge').classList.toggle('d-none', !state.isSample);
+
+  renderImpact(impact);
+  renderAssist(assist);
+  renderDamage(damage);
+
+  $('#footerGenerated').textContent = state.fileName
+    ? `ที่มา: ${state.fileName}` : '';
+  // Copy the main header/footer into each section (shown only when exporting a section as its own image)
+  const head = $('.dash-header').cloneNode(true);
+  [head, ...head.querySelectorAll('[id]')].forEach(e => e.removeAttribute('id'));
+  document.querySelectorAll('.sec-head').forEach(h => { h.innerHTML = ''; h.appendChild(head.cloneNode(true)); });
+  const foot = $('#dashboard > .dash-footer').cloneNode(true);
+  foot.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+  document.querySelectorAll('.sec-foot').forEach(f => (f.innerHTML = foot.innerHTML));
+
+  renderControlPanel();
+  applySoftColors();
+}
+
+function renderImpact(sec) {
+  const t = sec?.total || {};
+  const n = sec ? new Set(sec.records.map(r => r.province)).size : 0;
+  setText('kpiProvinces', sec ? fmt(n) : '–');
+  setSub('kpiProvincesSub', sec ? `${fmt(t.district)} อำเภอ · ${fmt(t.subdistrict)} ตำบล · ${fmt(t.village)} หมู่บ้าน` : '');
+  setText('kpiFarmers', sec ? fmt(t.farmers) : '–');
+  setSub('kpiFarmersSub', sec ? `เฉลี่ย ${fmt(n ? t.farmers / n : 0)} ราย/จังหวัด` : '');
+  const animals = sumKeys(t, SPECIES_KEYS);
+  setText('kpiAnimals', sec ? fmt(animals) : '–');
+  setSub('kpiAnimalsSub', sec ? `โค-กระบือ ${fmt((t.cattle || 0) + (t.buffalo || 0))} · สุกร ${fmt(t.swine)}` : '');
+  setText('kpiPasture', sec ? fmt(t.pasture) : '–');
+  setSub('kpiPastureSub', sec ? `ใน ${fmt(sec.records.filter(r => r.pasture > 0).length)} จังหวัด` : '');
+
+  // Doughnut: all species
+  const ds = charts.impactSpecies.data.datasets[0];
+  charts.impactSpecies.data.labels = CONFIG.SPECIES.map(s => s.label);
+  ds.data = CONFIG.SPECIES.map(s => t[s.key] || 0);
+  ds.backgroundColor = CONFIG.SPECIES.map(s => s.color);
+  charts.impactSpecies.options.plugins.centerText = animals ? { title: fmtShort(animals), sub: 'ตัว (รวม)' } : {};
+  charts.impactSpecies.update();
+  $('#impactSpeciesLegend').innerHTML = CONFIG.SPECIES.map(sp => `
+    <div class="bl-row">
+      <span class="bl-dot" style="background:${sp.color}"></span>
+      <span class="bl-name">${esc(sp.label)}</span>
+      <span class="bl-val">${sec ? fmt(t[sp.key]) : '–'}<span class="bl-unit">ตัว</span></span>
+      <span class="bl-pct" style="color:${sp.color}">${sec && animals ? pct(t[sp.key] || 0, animals) : '–'}</span>
+    </div>`).join('');
+  const big = CONFIG.SPECIES.filter(s => !CONFIG.CHART.stackedExclude.includes(s.key));
+
+  // Map
+  const metric = CONFIG.MAP.impactMetric;
+  const metricLabel = { farmers: ['เกษตรกรได้รับผลกระทบ', 'ราย'], animals: ['สัตว์ในพื้นที่ประสบภัย', 'ตัว'], pasture: ['แปลงหญ้าเลี้ยงสัตว์', 'ไร่'] }[metric]
+    || [`${CONFIG.SPECIES.find(s => s.key === metric)?.label || metric} ในพื้นที่`, 'ตัว'];
+  MAPS.impact.unit = metricLabel[1];
+  MAPS.impact.values = byProvince(sec, r => metric === 'animals' ? sumKeys(r, SPECIES_KEYS) : (r[metric] || 0));
+  $('#mapImpactSub').textContent = `สีเข้ม = ${metricLabel[0]}มาก · หน่วย: ${metricLabel[1]} · ป้ายชื่อ ${CONFIG.MAP.labelTop} จังหวัดแรก`;
+  drawMap('impact');
+
+  // Stacked bar: large animals per province by species
+  const rows = (sec?.records || []).map(r => ({ ...r, animals: sumKeys(r, SPECIES_KEYS), big: sumKeys(r, big.map(s => s.key)) }));
+  const byBig = [...rows].sort((a, b) => b.big - a.big);
+  charts.impactProvince.data.labels = byBig.map(r => r.province);
+  charts.impactProvince.data.datasets = big.map(s => ({ label: s.label, data: byBig.map(r => r[s.key] || 0), backgroundColor: s.color, maxBarThickness: 18 }));
+  fitHeight(charts.impactProvince, byBig.length, CONFIG.CHART.rowHeight, 80);
+  charts.impactProvince.update();
+
+  const byFarmers = [...rows].sort((a, b) => b.farmers - a.farmers || b.animals - a.animals);
+  $('#impactTableBody').innerHTML = byFarmers.length ? byFarmers.map(r => `<tr><td>${esc(r.province)}</td>
+      <td class="num">${fmt(r.district)}</td><td class="num">${fmt(r.subdistrict)}</td><td class="num">${fmt(r.village)}</td>
+      <td class="num">${fmt(r.farmers)}</td><td class="num">${fmt(r.animals)}</td><td class="num">${fmt(r.pasture)}</td></tr>`).join('')
+    : `<tr><td colspan="7" class="text-center text-muted">ยังไม่มีข้อมูล</td></tr>`;
+  $('#impactTableFoot').innerHTML = rows.length ? `<tr><td>รวม ${fmt(n)} จังหวัด</td>
+      <td class="num">${fmt(t.district)}</td><td class="num">${fmt(t.subdistrict)}</td><td class="num">${fmt(t.village)}</td>
+      <td class="num">${fmt(t.farmers)}</td><td class="num">${fmt(animals)}</td><td class="num">${fmt(t.pasture)}</td></tr>` : '';
+}
+
+function renderAssist(sec) {
+  const t = sec?.total || {};
+  const items = CONFIG.ASSIST_ITEMS;
+  $('#assistTiles').innerHTML = items.map(it => {
+    const today = t[it.key + '_today'] || 0;
+    return `<div class="tile" style="--accent:${it.color}">
+      <div class="tile-head"><span class="tile-icon"><i class="bi ${it.icon}"></i></span>${esc(it.label)}</div>
+      <div class="tile-val">${sec ? fmt(t[it.key]) : '–'}<span class="kpi-unit">${esc(it.unit)}</span></div>
+      <div class="tile-sub">${!sec ? '&nbsp;' : today > 0 ? `<span class="today-up"><i class="bi bi-arrow-up-short"></i>วันนี้ +${fmt(today)}</span>` : '<span class="today-zero">วันนี้ 0</span>'}</div>
+    </div>`;
+  }).join('');
+
+  // Heatmap: provinces × items, colour intensity relative to the largest value in each column
+  const recs = sec?.records || [];
+  const max = {};
+  items.forEach(it => (max[it.key] = Math.max(0, ...recs.map(r => r[it.key] || 0))));
+  const score = r => items.reduce((s, it) => s + (max[it.key] ? (r[it.key] || 0) / max[it.key] : 0), 0);
+  const heatRows = [...recs].sort((a, b) => score(b) - score(a));
+  $('#heatBody').innerHTML = heatRows.length ? heatRows.map(r => `<tr><td>${esc(r.province)}</td>${items.map(it => {
+      const v = r[it.key] || 0;
+      if (!v) return '<td class="hm text-muted">–</td>';
+      const a = 0.08 + 0.82 * Math.sqrt(v / max[it.key]);   // sqrt: keeps small values visible
+      return `<td class="hm" style="background:${softColor(it.color, a)};color:${a > 0.55 ? '#fff' : '#1f2937'}">${fmt(v)}</td>`;
+    }).join('')}</tr>`).join('')
+    : `<tr><td colspan="${items.length + 1}" class="text-center text-muted">ยังไม่มีข้อมูล</td></tr>`;
+  $('#heatFoot').innerHTML = sec ? `<tr><td>รวมสะสม</td>${items.map(it => `<td class="num">${fmt(t[it.key])}</td>`).join('')}</tr>` : '';
+
+  // 100% stacked: previous balance vs today
+  const ch = charts.assistToday, prev = ch.data.datasets[0], today = ch.data.datasets[1];
+  prev.data = []; today.data = []; prev.raw = []; today.raw = [];
+  items.forEach(it => {
+    const cum = t[it.key] || 0, td = Math.min(t[it.key + '_today'] || 0, cum);
+    prev.raw.push(cum - td); today.raw.push(td);
+    prev.data.push(cum ? (cum - td) / cum * 100 : 0); today.data.push(cum ? td / cum * 100 : 0);
+  });
+  ch.update();
+
+  // Today's table
+  const todayRows = recs.filter(r => items.some(it => r[it.key + '_today'] > 0));
+  $('#todayTableBody').innerHTML = todayRows.length
+    ? todayRows.map(r => `<tr><td>${esc(r.province)}</td>${items.map(it => `<td class="num">${r[it.key + '_today'] ? fmt(r[it.key + '_today']) : '<span class="text-muted">–</span>'}</td>`).join('')}</tr>`).join('')
+    : `<tr><td colspan="${items.length + 1}" class="text-center text-muted">${sec ? 'ไม่มีการช่วยเหลือเพิ่มในวันนี้' : 'ยังไม่มีข้อมูล'}</td></tr>`;
+  $('#todayTableFoot').innerHTML = sec ? `<tr><td>รวมวันนี้</td>${items.map(it => `<td class="num">${fmt(t[it.key + '_today'] || 0)}</td>`).join('')}</tr>` : '';
+  $('#todayCount').textContent = sec ? `${fmt(todayRows.length)} จังหวัด` : '–';
+}
+
+const pct = (v, total) => {
+  const p = v / total * 100;
+  return v > 0 && p < 0.01 ? '<0.01%' : `${p.toLocaleString('th-TH', { maximumFractionDigits: 2 })}%`;
+};
+function renderDamage(sec) {
+  const t = sec?.total || {};
+  const total = sumKeys(t, SPECIES_KEYS);
+  const n = sec ? new Set(sec.records.map(r => r.province)).size : 0;
+  const tile = (label, icon, color, val, sub) => `<div class="tile" style="--accent:${color}">
+      <div class="tile-head"><span class="tile-icon"><i class="bi ${icon}"></i></span>${esc(label)}</div>
+      <div class="tile-val">${val}<span class="kpi-unit">ตัว</span></div>
+      <div class="tile-sub">${sub ? esc(sub) : '&nbsp;'}</div></div>`;
+  $('#damageTiles').innerHTML =
+    tile('สัตว์ที่ได้รับความเสียหายทั้งหมด', 'bi-heartbreak', '#b91c1c', sec ? fmt(total) : '–', sec ? `ใน ${fmt(n)} จังหวัด` : '') +
+    CONFIG.SPECIES.map(s => tile(s.label, 'bi-dot', s.color, sec ? fmt(t[s.key]) : '–',
+      sec && total ? `${pct(t[s.key] || 0, total)} ของทั้งหมด` : '')).join('');
+
+  const rows = (sec?.records || []).map(r => ({ ...r, total: sumKeys(r, SPECIES_KEYS) })).sort((a, b) => b.total - a.total);
+
+  // Doughnut: top N provinces + others
+  const N = CONFIG.CHART.shareTopN, top = rows.slice(0, N), rest = rows.slice(N);
+  const restSum = rest.reduce((s, r) => s + r.total, 0);
+  const share = charts.damageShare, sd = share.data.datasets[0];
+  share.data.labels = [...top.map(r => r.province), ...(rest.length ? [`อื่นๆ (${rest.length} จังหวัด)`] : [])];
+  sd.data = [...top.map(r => r.total), ...(rest.length ? [restSum] : [])];
+  sd.backgroundColor = share.data.labels.map((_, i) => i < top.length ? CONFIG.CHART.shareColors[i % (CONFIG.CHART.shareColors.length - 1)] : CONFIG.CHART.shareColors.at(-1));
+  share.options.plugins.centerText = rows.length ? { title: fmtShort(total), sub: 'ตัว (รวม)' } : {};
+  share.update();
+
+  MAPS.damage.values = new Map(rows.map(r => [r.province, r.total]));
+  drawMap('damage');
+
+  charts.damageProvince.data.labels = rows.map(r => r.province);
+  charts.damageProvince.data.datasets[0].data = rows.map(r => r.total);
+  fitHeight(charts.damageProvince, rows.length, CONFIG.CHART.rowHeight);
+  charts.damageProvince.update();
+
+  $('#damageTableBody').innerHTML = rows.length
+    ? rows.map(r => `<tr><td>${esc(r.province)}</td>${SPECIES_KEYS.map(k => `<td class="num">${fmt(r[k])}</td>`).join('')}<td class="num fw-semibold">${fmt(r.total)}</td></tr>`).join('')
+    : `<tr><td colspan="${SPECIES_KEYS.length + 2}" class="text-center text-muted">ยังไม่มีข้อมูล</td></tr>`;
+  $('#damageTableFoot').innerHTML = rows.length
+    ? `<tr><td>รวม ${fmt(n)} จังหวัด</td>${SPECIES_KEYS.map(k => `<td class="num">${fmt(t[k])}</td>`).join('')}<td class="num">${fmt(total)}</td></tr>` : '';
+}
+
+/* =====================================================================
+ *  8) CONTROL PANEL
+ * ===================================================================== */
+function renderControlPanel() {
+  const m = state.meta;
+  $('#fileInfo').innerHTML = state.fileName
+    ? `<i class="bi bi-file-earmark-slides"></i> <b>${esc(state.fileName)}</b>${m.dateText ? ` · ข้อมูล ณ ${esc(m.dateText)} ${esc(m.timeText || '')}` : ''}` : '';
+  $('#fileSlots').innerHTML = Object.entries(CONFIG.SECTIONS).map(([type, cfg], i) => {
+    const d = state.data[type];
+    let badge = '<span class="badge text-bg-secondary">ไม่พบตาราง</span>', body = '';
+    if (d) {
+      badge = '<span class="badge text-bg-success">อ่านแล้ว</span>';
+      body = `<div class="small text-muted mt-1">สไลด์ที่ ${[...new Set(d.slides)].join(', ')} · ${d.records.length} จังหวัด</div>`;
+      if (d.missing.length) body += `<div class="small text-warning-emphasis"><i class="bi bi-exclamation-triangle"></i> ไม่พบคอลัมน์: ${d.missing.map(esc).join(', ')}</div>`;
+      if (d.mismatch.length) body += `<div class="small text-warning-emphasis"><i class="bi bi-calculator"></i> ยอดรวมในรายงานไม่ตรงกับผลรวมรายจังหวัด: ${
+        d.mismatch.map(x => `${esc(x.label)} (รายงาน ${fmt(x.report)} / รวมรายจังหวัด ${fmt(x.sum)})`).join('; ')} — แดชบอร์ดใช้ยอดตามรายงาน</div>`;
+      body += `<details class="mt-1"><summary>ดูการจับคู่คอลัมน์</summary><table class="map-table mt-1">${
+        d.mapping.map(mp => `<tr><td class="text-muted text-nowrap">${esc(mp.label)}</td><td>${mp.cols.length ? mp.cols.map(c => `<span class="badge text-bg-light border text-wrap text-start">${esc(c)}</span>`).join(' ') : '<span class="text-danger">ไม่พบ</span>'}</td></tr>`).join('')
+      }</table></details>`;
+    } else if (!state.fileName) {
+      badge = '<span class="badge text-bg-secondary">รอไฟล์</span>';
+    }
+    return `<div class="file-slot ${d ? 'loaded' : ''}">
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <div><span class="slot-no">${i + 1}</span><strong>${esc(cfg.label)}</strong></div>${badge}
+      </div>${body}</div>`;
+  }).join('');
+  const um = unmatchedOnMap();
+  $('#mapInfo').innerHTML = mapState.status === 'loading' ? '<i class="bi bi-map"></i> กำลังโหลดแผนที่…'
+    : mapState.status === 'error' ? `<span class="text-danger"><i class="bi bi-map"></i> โหลดแผนที่ไม่สำเร็จ (${esc(mapState.error || 'ไม่ได้เชื่อมต่ออินเทอร์เน็ต')}) — แดชบอร์ดส่วนอื่นยังใช้ได้ตามปกติ</span>`
+    : um.length ? `<span class="text-warning-emphasis"><i class="bi bi-map"></i> ไม่พบบนแผนที่: ${um.map(esc).join(', ')} (ตรวจสอบการสะกดชื่อจังหวัด)</span>`
+    : '<i class="bi bi-map"></i> แผนที่พร้อมใช้งาน';
+  if (state.meta.dateVariants > 1) showAlert('<i class="bi bi-calendar-x"></i> พบ "ข้อมูล ณ วันที่" ไม่ตรงกันในแต่ละสไลด์ — แดชบอร์ดใช้วันที่ที่พบมากที่สุด', 'warning', 'dateWarn');
+  else $('#dateWarn')?.remove();
+}
+
+function showAlert(msg, type = 'warning', id) {
+  if (id && document.getElementById(id)) return;
+  const el = document.createElement('div');
+  if (id) el.id = id;
+  el.className = `alert alert-${type} alert-dismissible py-2 small mb-2`;
+  el.innerHTML = `${msg}<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>`;
+  $('#alerts').appendChild(el);
+}
+
+async function handleFile(file) {
+  if (!file) return;
+  $('#alerts').innerHTML = '';
+  const name = file.name.normalize('NFC');
+  if (!/\.pptx$/i.test(name)) { showAlert(`ไฟล์ <b>${esc(name)}</b> ไม่ใช่ .pptx (ถ้าเป็น .ppt รุ่นเก่า ให้เปิดใน PowerPoint แล้ว Save As เป็น .pptx)`, 'danger'); return; }
+  try {
+    const slides = await readPptxSlides(await file.arrayBuffer());
+    const data = parseSlides(slides);
+    if (!Object.keys(data).length) throw new Error('ไม่พบตารางที่ตรงกับ 3 หัวข้อในไฟล์นี้');
+    Object.assign(state, { data, meta: parseMeta(slides), fileName: name, isSample: false });
+  } catch (e) {
+    console.error(e);
+    showAlert(`อ่านไฟล์ไม่สำเร็จ: ${esc(e.message)}`, 'danger');
+    return;
+  }
+  render();
+}
+
+/* =====================================================================
+ *  9) EXPORT TO PNG (dashboard container only)
+ * ===================================================================== */
+function exportScale() {
+  const v = +$('#qualitySel').value;
+  return [2, 3, 4].includes(v) ? v : CONFIG.EXPORT_SCALE;
+}
+async function capture(el, wanted) {
+  const r = el.getBoundingClientRect();
+  const maxSide = CONFIG.MAX_CANVAS_SIDE;
+  const scale = Math.min(wanted, maxSide / r.width, maxSide / r.height, Math.sqrt(CONFIG.MAX_CANVAS_AREA / (r.width * r.height)));
+  if (scale < wanted - 0.01) console.info(`ลดความคมชัดเป็น ${scale.toFixed(2)}× เพราะภาพใหญ่เกินขีดจำกัดของเบราว์เซอร์`);
+  const canvas = await html2canvas(el, {
+    scale,
+    backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--dash-bg').trim() || '#f5f7f6',
+    useCORS: true, logging: false,
+    windowWidth: Math.max(window.innerWidth, 1400),
+  });
+  canvas.cssWidth = r.width;     // remember CSS size for PDF layout
+  return canvas;
+}
+function download(canvas, name) {
+  return new Promise(res => canvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.download = name; a.href = URL.createObjectURL(blob); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); res(); }, 1500);
+  }, 'image/png'));
+}
+
+// Page breaks for PDF: never cut through a chart, card, tile, title or table row.
+function breakPoints(sec) {
+  const top = sec.getBoundingClientRect().top;
+  const solid = [...sec.querySelectorAll('.kpi-card, .tile, .section-title, .sec-head, tr, .chart-title, .chart-sub, .total-pill, .map-legend, .big-legend')]
+    .concat([...sec.querySelectorAll('.chart-card')].filter(c => c.querySelector('canvas')))
+    .map(e => { const b = e.getBoundingClientRect(); return [b.top - top, b.bottom - top]; });
+  const cands = [...new Set(solid.flat().map(y => Math.round(y)))].sort((a, b) => a - b);
+  return { solid, cands };
+}
+function sliceCanvas(src, y0, y1) {
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = Math.max(1, Math.round(y1 - y0));
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(src, 0, Math.round(y0), src.width, c.height, 0, 0, c.width, c.height);
+  return c;
+}
+async function buildPdf(sections, scale) {
+  if (!window.jspdf?.jsPDF) throw new Error('โหลดไลบรารี PDF ไม่สำเร็จ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต');
+  const { format, orientation, margin, imageType } = CONFIG.PDF;
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format, orientation, compress: true });
+  const pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+  const usableW = pw - 2 * margin, usableH = ph - 2 * margin - 4;   // 4 mm for the page number
+  let first = true;
+  for (const sec of sections) {
+    const canvas = await capture(sec, scale);
+    const pxPerCss = canvas.width / canvas.cssWidth;
+    const mmPerCss = usableW / canvas.cssWidth;
+    const pageCss = usableH / mmPerCss;                                // CSS px that fit on one page
+    const { solid, cands } = breakPoints(sec);
+    const totalCss = canvas.height / pxPerCss;
+    let y = 0;
+    while (y < totalCss - 1) {
+      let end = Math.min(totalCss, y + pageCss);
+      if (end < totalCss) {
+        const ok = cands.filter(c => c > y + 40 && c <= end && !solid.some(([a, b]) => a < c - 1 && b > c + 1));
+        if (ok.length) end = ok[ok.length - 1];
+      }
+      const part = sliceCanvas(canvas, y * pxPerCss, end * pxPerCss);
+      if (!first) pdf.addPage(format, orientation);
+      first = false;
+      const hMm = (end - y) * mmPerCss;
+      pdf.addImage(part, imageType, margin, margin, usableW, hMm, undefined, 'FAST');
+      y = end;
+    }
+  }
+  const n = pdf.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(140);
+    pdf.text(`${i} / ${n}`, pw - margin, ph - margin + 1, { align: 'right' });
+  }
+  return pdf;
+}
+
+// mode: 'png' (whole page, 1 image) | 'png3' (one image per section) | 'pdf'
+async function exportDashboard(mode) {
+  const btns = { png: $('#btnExport'), png3: $('#btnExportSplit'), pdf: $('#btnExportPdf') };
+  const labels = Object.fromEntries(Object.entries(btns).map(([k, b]) => [k, b.innerHTML]));
+  Object.values(btns).forEach(b => (b.disabled = true));
+  btns[mode].innerHTML = `<span class="spinner-border spinner-border-sm"></span> กำลังสร้าง${mode === 'pdf' ? ' PDF' : 'ภาพ'}...`;
+  const scrollPos = [window.scrollX, window.scrollY];
+  const date = state.meta.iso || new Date().toISOString().slice(0, 10);
+  const scale = exportScale();
+  document.body.classList.add('export-mode');
+  if (mode !== 'png') document.body.classList.add('export-split');
+  try {
+    await document.fonts.ready;
+    setRenderScale(scale);                                             // re-draw charts & maps at export resolution
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    window.scrollTo(0, 0);
+    const sections = [...document.querySelectorAll('.dash-section')];
+    if (mode === 'png') {
+      await download(await capture($('#dashboard'), scale), `livestock_dashboard_${date}.png`);
+    } else if (mode === 'png3') {
+      for (const sec of sections) {
+        await download(await capture(sec, scale), `${sec.dataset.file}_${date}.png`);
+        await new Promise(r => setTimeout(r, 400));                    // browsers may block rapid multiple downloads
+      }
+    } else {
+      (await buildPdf(sections, scale)).save(`รายงานปศุสัตว์_${date}.pdf`);
+    }
+  } catch (e) {
+    console.error(e); showAlert(`ไม่สามารถสร้าง${mode === 'pdf' ? ' PDF' : 'ภาพ'}ได้: ` + esc(e.message), 'danger');
+  } finally {
+    document.body.classList.remove('export-mode', 'export-split');
+    document.querySelectorAll('iframe.html2canvas-container').forEach(f => f.remove());
+    setRenderScale(null);                                              // back to normal screen resolution
+    window.scrollTo(...scrollPos);
+    Object.entries(btns).forEach(([k, b]) => { b.disabled = false; b.innerHTML = labels[k]; });
+  }
+}
+
+/* =====================================================================
+ *  10) SAMPLE DATA — synthetic slides in the same layout as the real report,
+ *      passed through the same parser.
+ * ===================================================================== */
+function seededRand(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function buildSampleSlides() {
+  const rnd = seededRand(20261008), ri = (a, b) => Math.round(a + rnd() * (b - a));
+  const provs = ['ชัยนาท', 'สระบุรี', 'สิงห์บุรี', 'ปราจีนบุรี', 'ระยอง', 'สระแก้ว', 'นครราชสีมา', 'อุบลราชธานี', 'อุทัยธานี', 'ฉะเชิงเทรา', 'พระนครศรีอยุธยา', 'ลพบุรี', 'สุพรรณบุรี', 'นครสวรรค์', 'ปทุมธานี', 'อ่างทอง'];
+  const d = new Date(), be = d.getFullYear() + 543;
+  const asOf = `ข้อมูล ณ วันที่ ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${be} เวลา 18.00 น.`;
+  const n = v => v.toLocaleString('en-US');
+
+  const imp = provs.map((p, i) => [`${i + 1}. ${p}`, ri(1, 12), ri(2, 60), ri(3, 300), ri(10, 4000), ri(0, 6000), ri(0, 3000), ri(0, 20000), ri(0, 3000), ri(500, 900000), ri(0, 3) ? 0 : ri(10, 500)]);
+  const impTot = ['รวม ' + provs.length + ' จังหวัด', ...imp[0].slice(1).map((_, c) => imp.reduce((s, r) => s + r[c + 1], 0))];
+  const impHead = ['จังหวัด', 'อำเภอ', 'ตำบล', 'หมู่บ้าน', 'เกษตรกร (ราย)', 'โค (ตัว)', 'กระบือ (ตัว)', 'สุกร (ตัว)', 'แพะ/แกะ (ตัว)', 'สัตว์ปีก (ตัว)', 'แปลงหญ้าเลี้ยงสัตว์ (ไร่)'];
+
+  const items = CONFIG.ASSIST_ITEMS;
+  const asHead1 = ['จังหวัด', ...items.flatMap(it => [`${it.label} (${it.unit})`, ''])];
+  const asHead2 = ['', ...items.flatMap(() => ['วันนี้', 'สะสม'])];
+  const ranges = [[0, 70000], [0, 50000], [0, 2000], [0, 300], [0, 120]];
+  const as = provs.map((p, i) => [`${i + 1}. ${p}`, ...ranges.flatMap(([a, b]) => { const c = ri(a, b); const t = ri(0, 5) ? 0 : Math.round(c * 0.1); return [t, c]; })]);
+  const sumCol = c => as.reduce((s, r) => s + r[c], 0);
+  const asToday = ['วันนี้', ...items.flatMap((_, k) => [sumCol(1 + k * 2), ''])];
+  const asCum = ['รวมสะสม', ...items.flatMap((_, k) => ['', sumCol(2 + k * 2)])];
+
+  const dmgP = provs.filter(() => rnd() > 0.4);
+  const dmg = dmgP.map((p, i) => { const r = [ri(0, 40), ri(0, 10), ri(0, 3000), ri(0, 5), 0, ri(0, 400000)]; return [`${i + 1}. ${p}`, ...r, r.reduce((a, b) => a + b, 0)]; });
+  const dmgTot = [`รวมทั้ง ${dmgP.length} จังหวัด`, ...[1, 2, 3, 4, 5, 6, 7].map(c => dmg.reduce((s, r) => s + r[c], 0))];
+
+  const fmtRow = r => r.map(v => typeof v === 'number' ? n(v) : v);
+  return [
+    { no: 1, text: `ข้อมูลตารางแสดงข้อมูลผลกระทบสัตว์ที่อยู่ในพื้นที่น้ำท่วม ช่วงภัย วันที่ 1 ${THAI_MONTHS[d.getMonth()]} ${be} – ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${be}\n${asOf}`,
+      tables: [[impHead, ...imp, impTot].map(fmtRow)] },
+    { no: 2, text: `ตารางแสดงข้อมูล การช่วยเหลือเฉพาะหน้า\n${asOf}`, tables: [[asHead1, asHead2, ...as, asToday, asCum].map(fmtRow)] },
+    { no: 3, text: `ตารางแสดงข้อมูลสัตว์ที่ได้รับความเสียหาย\n${asOf}`,
+      tables: [[['จังหวัด', 'โค (ตัว)', 'กระบือ (ตัว)', 'สุกร (ตัว)', 'แพะ (ตัว)', 'แกะ (ตัว)', 'สัตว์ปีก (ตัว)', 'รวม (ตัว)'], ...dmg, dmgTot].map(fmtRow)] },
+  ];
+}
+function loadSample() {
+  $('#alerts').innerHTML = '';
+  const slides = buildSampleSlides();
+  Object.assign(state, { data: parseSlides(slides), meta: parseMeta(slides), fileName: 'ข้อมูลตัวอย่าง', isSample: true });
+  render();
+}
+
+/* =====================================================================
+ *  11) WIRE UP
+ * ===================================================================== */
+(async function init() {
+  try { await document.fonts.load("600 12px 'Sarabun'"); } catch (_) {}
+  initCharts();
+  render();
+  loadThaiMap();
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(redrawMaps, 150); });
+
+  $('#fileInput').addEventListener('change', e => { handleFile(e.target.files[0]); e.target.value = ''; });
+  const dz = $('#dropZone');
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('dragover'); }));
+  dz.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+  $('#btnExport').addEventListener('click', () => exportDashboard('png'));
+  $('#btnExportSplit').addEventListener('click', () => exportDashboard('png3'));
+  $('#btnExportPdf').addEventListener('click', () => exportDashboard('pdf'));
+  // sharpness selector (remembered in this browser)
+  const qs = $('#qualitySel'), hint = () => ($('#qualityHint').textContent = `ภาพกว้าง ${(1280 * +qs.value).toLocaleString('th-TH')} px`);
+  let saved = null; try { saved = localStorage.getItem('dash-quality'); } catch (_) {}
+  qs.value = ['2', '3', '4'].includes(saved) ? saved : String(CONFIG.EXPORT_SCALE);
+  hint();
+  qs.addEventListener('change', () => { hint(); try { localStorage.setItem('dash-quality', qs.value); } catch (_) {} });
+  $('#btnSample').addEventListener('click', loadSample);
+  $('#btnReset').addEventListener('click', () => {
+    Object.assign(state, { data: {}, meta: {}, fileName: null, isSample: false });
+    $('#alerts').innerHTML = ''; render();
+  });
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
